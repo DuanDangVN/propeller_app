@@ -1,0 +1,1 @@
+ pyinstaller --onefile --hidden-import nidaqmx --copy-metadata nidaqmx --add-data "public/storeage_calib.json;." --icon=public/icon.ico main.py
