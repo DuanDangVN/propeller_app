@@ -1,0 +1,39 @@
+{
+  "acquisition": {
+    "mode": "hardware",
+    "sampling_rate_hz": 1000,
+    "block_size": 100,
+    "update_interval_ms": 100,
+    "force_channel": "ai2",
+    "force_negative_input": "ai6",
+    "torque_channel": "ai1",
+    "torque_negative_input": "ai5",
+    "voltage_min_v": 0.0,
+    "voltage_max_v": 10.0
+  },
+  "filter": {
+    "mode": "moving_average",
+    "moving_average_window": 9,
+    "median_window": 5,
+    "lowpass_cutoff_hz": 10.0,
+    "lowpass_order": 4
+  },
+  "display": {
+    "show_raw": true,
+    "show_filtered": true,
+    "max_plot_points": 1000
+  },
+  "storage": {
+    "save_raw": true
+  },
+  "zero": {
+    "duration_s": 1.5
+  },
+  "rpm": {
+    "counter": "ctr0",
+    "terminal": "PFI0",
+    "pulses_per_revolution": 1,
+    "calculation_window_s": 0.1,
+    "timeout_s": 1.5
+  }
+}
