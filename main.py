@@ -151,14 +151,14 @@ class NIDeviceReader:
             self.task.ai_channels.add_ai_voltage_chan(
                 f"{dev_name}/{force_channel}",
                 name_to_assign_to_channel="force_voltage",
-                terminal_config=TerminalConfiguration.DIFFERENTIAL,
+                terminal_config=TerminalConfiguration.DIFF,
                 min_val=ANALOG_MIN_V,
                 max_val=ANALOG_MAX_V,
             )
             self.task.ai_channels.add_ai_voltage_chan(
                 f"{dev_name}/{torque_channel}",
                 name_to_assign_to_channel="torque_voltage",
-                terminal_config=TerminalConfiguration.DIFFERENTIAL,
+                terminal_config=TerminalConfiguration.DIFF,
                 min_val=ANALOG_MIN_V,
                 max_val=ANALOG_MAX_V,
             )
