@@ -75,7 +75,7 @@ from nidaqmx import Task
 import nidaqmx.system
 _smoke_trace("nidaqmx imports complete")
 
-from acquisition_worker import AcquisitionWorker
+from acquisition_worker import AcquisitionWorker, CalibrationWorker
 from processing.calibration import CalibrationCoefficients
 from processing.filters import FilterSettings, SignalFilter
 from processing.rpm import CounterRpmTracker, RpmReading
@@ -206,6 +206,65 @@ class NIDeviceReader:
                 task.close()
             except Exception:
                 pass
+
+
+class AnalogCalibrationReader:
+    """Read force and torque only for a finite calibration capture."""
+
+    def __init__(
+        self,
+        dev_name,
+        rate,
+        samples,
+        force_channel=FORCE_CHANNEL,
+        torque_channel=TORQUE_CHANNEL,
+        **_reader_kwargs,
+    ):
+        self.samples = max(1, int(samples))
+        self.task = Task()
+        try:
+            self.task.ai_channels.add_ai_voltage_chan(
+                f"{dev_name}/{force_channel}",
+                name_to_assign_to_channel="calibration_force_voltage",
+                terminal_config=TerminalConfiguration.DIFF,
+                min_val=ANALOG_MIN_V,
+                max_val=ANALOG_MAX_V,
+            )
+            self.task.ai_channels.add_ai_voltage_chan(
+                f"{dev_name}/{torque_channel}",
+                name_to_assign_to_channel="calibration_torque_voltage",
+                terminal_config=TerminalConfiguration.DIFF,
+                min_val=ANALOG_MIN_V,
+                max_val=ANALOG_MAX_V,
+            )
+            self.task.timing.cfg_samp_clk_timing(
+                float(rate),
+                sample_mode=AcquisitionType.CONTINUOUS,
+                samps_per_chan=max(self.samples * 4, self.samples),
+            )
+            self.task.start()
+        except Exception:
+            self.close()
+            raise
+
+    def read_data(self):
+        """Return one synchronized force/torque voltage block."""
+        data = self.task.read(number_of_samples_per_channel=self.samples)
+        return np.asarray(data[0]), np.asarray(data[1])
+
+    def stop(self):
+        """Stop the temporary NI task."""
+        try:
+            self.task.stop()
+        except Exception:
+            pass
+
+    def close(self):
+        """Release the temporary NI task."""
+        try:
+            self.task.close()
+        except Exception:
+            pass
 
 
 class SimulationReader:
@@ -347,6 +406,7 @@ class MainWindow(QMainWindow):
     """Main laboratory user interface."""
 
     request_acquisition_stop = Signal()
+    request_calibration_stop = Signal()
 
     def __init__(self):
         super().__init__()
@@ -553,6 +613,10 @@ class MainWindow(QMainWindow):
         self.latest_rpm_status = "NOT_STARTED"
         self.acquisition_thread = None
         self.acquisition_worker = None
+        self.calibration_thread = None
+        self.calibration_worker = None
+        self.pending_calibration_mass = None
+        self.pending_calibration_parameter = None
         self.motor_controller = None
         self.parameter_selected = "None"
         # Data for plotting
@@ -783,15 +847,7 @@ class MainWindow(QMainWindow):
         clear_btn_tab0.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         clear_btn_tab0.pressed.connect(self.clear_data)
         button_layout.addWidget(clear_btn_tab0,1)
-        # -- -- Offset data button
-        zero_force_btn = QPushButton("Zero force")
-        zero_force_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        zero_force_btn.pressed.connect(self.zero_force)
-        button_layout.addWidget(zero_force_btn, 1)
-        zero_torque_btn = QPushButton("Zero torque")
-        zero_torque_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        zero_torque_btn.pressed.connect(self.zero_torque)
-        button_layout.addWidget(zero_torque_btn, 1)
+        # -- -- Zero both analog channels
         offset_btn_tab0 = QPushButton("Zero all")
         offset_btn_tab0.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         offset_btn_tab0.pressed.connect(self.offset_sensor_data)
@@ -990,7 +1046,9 @@ class MainWindow(QMainWindow):
         self.show_voltage.setAlignment(Qt.AlignCenter)
         grid1_layout.addWidget(self.show_voltage, 1, 3)
         # -- -- -- Show storage value
-        self.show_storage = QLabel("Show storage value")
+        self.show_storage = QLabel(
+            f"Samples: 0/{self.number_persample} · Calibration points: 0"
+        )
         self.show_storage.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.show_storage.setFixedHeight(text_input_height)
         self.show_storage.setAlignment(Qt.AlignCenter)
@@ -1368,9 +1426,18 @@ class MainWindow(QMainWindow):
 
     def linear_data_value(self):
         try:
-        # Perform linear regression
-            self.slope, self.intercept, r_value, p_value, std_err = linregress(self.vol_cablibration, self.mass_cablibration)
-            
+            if len(self.vol_cablibration) < 2:
+                raise ValueError("Capture at least two calibration points.")
+            if len(set(self.vol_cablibration)) < 2:
+                raise ValueError("Calibration voltages must not all be equal.")
+            self.slope, self.intercept, r_value, p_value, std_err = linregress(
+                self.vol_cablibration,
+                self.mass_cablibration,
+            )
+            self.show_slope.setText(
+                f"A: {self.slope:.6g} · B: {self.intercept:.6g} · "
+                f"R²: {r_value ** 2:.6f}"
+            )
             self.plot_data_with_fit()
         except Exception as e:
             self.plot_widget.clear()
@@ -1381,37 +1448,198 @@ class MainWindow(QMainWindow):
         self.parameter_selected = selected_text
 
     def clear_all_value(self):
+        """Clear all captured calibration points and the fitted curve."""
         self.mass_cablibration = []
         self.vol_cablibration = []
+        self.plot_widget.clear()
+        self.show_voltage.setText("No voltage captured")
+        self.show_slope.setText("A/B not calculated")
+        self.show_storage.setText(
+            f"Samples: 0/{self.number_persample} · Calibration points: 0"
+        )
 
     def get_voltage_value(self):
-        """Capture the latest background-read voltage for calibration."""
+        """Capture a finite calibration block without requiring Read data."""
         try:
-            if not self.read_sensor_running:
-                raise RuntimeError(
-                    "Start NI data reading, wait for a stable signal, "
-                    "then capture the voltage."
-                )
             mass = float(self.input_mass.text())
-            if self.parameter_selected == "Thrust":
-                if self.recent_force_voltage.size == 0:
-                    raise RuntimeError("No force voltage has been received.")
-                mean_vol = float(np.mean(self.recent_force_voltage))
-                self.title_plot = "Thrust (N)"
-                converted_mass = mass * 9.80665 * 0.001
-            elif self.parameter_selected == "Torque":
-                if self.recent_torque_voltage.size == 0:
-                    raise RuntimeError("No torque voltage has been received.")
-                mean_vol = float(np.mean(self.recent_torque_voltage))
-                self.title_plot = "Torque (N.m)"
-                converted_mass = mass * 9.80665 * 0.001 * 0.04
-            else:
+            if not np.isfinite(mass) or mass < 0:
+                raise ValueError("Mass must be a finite value greater than or equal to 0.")
+            if self.parameter_selected not in {"Thrust", "Torque"}:
                 raise ValueError("Select Thrust or Torque first.")
-            self.vol_cablibration.append(mean_vol)
-            self.mass_cablibration.append(converted_mass)
-            self.show_voltage.setText(f"Volt: {round(mean_vol, 4)}")
+            if self.calibration_thread is not None:
+                raise RuntimeError("A calibration capture is already running.")
+
+            sample_count = max(1, int(self.number_persample))
+            self.pending_calibration_mass = mass
+            self.pending_calibration_parameter = self.parameter_selected
+            self.get_vol.setEnabled(False)
+
+            if self.read_sensor_running:
+                available = min(
+                    self.recent_force_voltage.size,
+                    self.recent_torque_voltage.size,
+                    sample_count,
+                )
+                if available <= 0:
+                    raise RuntimeError("No live analog samples have been received yet.")
+                self._update_calibration_progress(available, available)
+                self._complete_calibration_capture(
+                    self.recent_force_voltage[-available:],
+                    self.recent_torque_voltage[-available:],
+                )
+                self.get_vol.setEnabled(True)
+                return
+
+            if self.acquisition_mode == "hardware" and not self.dev_selected:
+                raise RuntimeError(
+                    "No NI device is selected. Connect USB-6001 and scan NI devices."
+                )
+
+            self.calibration_thread = QThread(self)
+            reader_factory = (
+                SimulationReader
+                if self.acquisition_mode == "simulation"
+                else AnalogCalibrationReader
+            )
+            chunk_size = min(
+                sample_count,
+                max(1, int(self.sampling_rate * 0.1)),
+            )
+            self.calibration_worker = CalibrationWorker(
+                reader_factory=reader_factory,
+                device_name=self.dev_selected or "Simulation",
+                sampling_rate_hz=self.sampling_rate,
+                sample_count=sample_count,
+                chunk_size=chunk_size,
+                reader_kwargs={
+                    "force_channel": FORCE_CHANNEL,
+                    "torque_channel": TORQUE_CHANNEL,
+                    "pulses_per_revolution": self.pulses_per_revolution,
+                },
+            )
+            self.calibration_worker.moveToThread(self.calibration_thread)
+            self.calibration_thread.started.connect(
+                self.calibration_worker.start
+            )
+            self.request_calibration_stop.connect(
+                self.calibration_worker.stop
+            )
+            self.calibration_worker.progress.connect(
+                self._update_calibration_progress
+            )
+            self.calibration_worker.data_ready.connect(
+                self._complete_calibration_capture
+            )
+            self.calibration_worker.error.connect(
+                self._on_calibration_error
+            )
+            self.calibration_worker.finished.connect(
+                self.calibration_worker.deleteLater
+            )
+            self.calibration_thread.finished.connect(
+                self._on_calibration_thread_finished
+            )
+            self.calibration_thread.finished.connect(
+                self.calibration_thread.deleteLater
+            )
+            self.calibration_thread.start()
+            LOGGER.info(
+                "Calibration capture started: mode=%s samples=%s parameter=%s",
+                self.acquisition_mode,
+                sample_count,
+                self.parameter_selected,
+            )
         except Exception as e:
+            self.pending_calibration_mass = None
+            self.pending_calibration_parameter = None
+            self.get_vol.setEnabled(True)
             QMessageBox.critical(self, "Calibration error", str(e))
+
+    def _update_calibration_progress(self, collected, total):
+        """Show the finite sample counter while calibration is acquired."""
+        self.show_storage.setText(
+            f"Samples: {int(collected)}/{int(total)} · "
+            f"Calibration points: {len(self.vol_cablibration)}"
+        )
+
+    def _complete_calibration_capture(self, force_voltage, torque_voltage):
+        """Convert and store one averaged calibration point."""
+        force_voltage = np.asarray(force_voltage, dtype=np.float64).reshape(-1)
+        torque_voltage = np.asarray(torque_voltage, dtype=np.float64).reshape(-1)
+        sample_count = min(force_voltage.size, torque_voltage.size)
+        if sample_count <= 0:
+            self._on_calibration_error("Calibration returned no analog samples.")
+            return
+
+        parameter = self.pending_calibration_parameter
+        mass = self.pending_calibration_mass
+        if parameter is None or mass is None:
+            self._on_calibration_error("Calibration request state was lost.")
+            return
+
+        if parameter == "Thrust":
+            mean_vol = float(np.mean(force_voltage[:sample_count]))
+            self.title_plot = "Thrust (N)"
+            converted_mass = float(mass) * 9.80665 * 0.001
+        elif parameter == "Torque":
+            mean_vol = float(np.mean(torque_voltage[:sample_count]))
+            self.title_plot = "Torque (N.m)"
+            converted_mass = float(mass) * 9.80665 * 0.001 * 0.04
+        else:
+            self._on_calibration_error("Select Thrust or Torque first.")
+            return
+
+        self.vol_cablibration.append(mean_vol)
+        self.mass_cablibration.append(converted_mass)
+        self.show_voltage.setText(f"Volt: {mean_vol:.6f} V")
+        self.show_storage.setText(
+            f"Samples: {sample_count}/{sample_count} · "
+            f"Calibration points: {len(self.vol_cablibration)}"
+        )
+        self.pending_calibration_mass = None
+        self.pending_calibration_parameter = None
+        LOGGER.info(
+            "Calibration point captured: parameter=%s samples=%s voltage=%.9f",
+            parameter,
+            sample_count,
+            mean_vol,
+        )
+
+    def _on_calibration_error(self, message):
+        """Report an independent calibration acquisition failure."""
+        LOGGER.error("Calibration acquisition error: %s", message)
+        self.pending_calibration_mass = None
+        self.pending_calibration_parameter = None
+        self.get_vol.setEnabled(True)
+        QMessageBox.critical(self, "Calibration error", str(message))
+
+    def _on_calibration_thread_finished(self):
+        """Release references after a one-shot calibration capture."""
+        self.calibration_worker = None
+        self.calibration_thread = None
+        self.get_vol.setEnabled(True)
+
+    def stop_calibration_capture(self):
+        """Stop a temporary calibration task during application shutdown."""
+        thread = self.calibration_thread
+        worker = self.calibration_worker
+        if thread is None:
+            return
+        if thread.isRunning() and worker is not None:
+            stop_loop = QEventLoop(self)
+            stop_timeout = QTimer(self)
+            stop_timeout.setSingleShot(True)
+            thread.finished.connect(stop_loop.quit)
+            stop_timeout.timeout.connect(stop_loop.quit)
+            stop_timeout.start(3000)
+            self.request_calibration_stop.emit()
+            stop_loop.exec()
+            if thread.isRunning():
+                LOGGER.error(
+                    "Calibration acquisition thread did not stop within 3 seconds"
+                )
+                thread.requestInterruption()
+                thread.quit()
     def activate_display_tab(self):
         self.stacklayout.setCurrentIndex(0)
 
@@ -1640,11 +1868,6 @@ class MainWindow(QMainWindow):
                 thread.quit()
         elif worker is not None:
             self.request_acquisition_stop.emit()
-        if worker is not None:
-            try:
-                self.request_acquisition_stop.disconnect(worker.stop)
-            except (RuntimeError, TypeError, SystemError):
-                pass
         self.acquisition_worker = None
         self.acquisition_thread = None
         LOGGER.info("NI acquisition stopped")
@@ -1821,56 +2044,44 @@ class MainWindow(QMainWindow):
 
     def offset_sensor_data(self):
         """Zero both analog channels using the latest stable window."""
-        self._zero_channels(zero_force=True, zero_torque=True)
+        self._zero_all_channels()
 
-    def zero_force(self):
-        """Zero only the force channel."""
-        self._zero_channels(zero_force=True, zero_torque=False)
-
-    def zero_torque(self):
-        """Zero only the torque channel."""
-        self._zero_channels(zero_force=False, zero_torque=True)
-
-    def _zero_channels(self, zero_force, zero_torque):
-        """Apply independent tare offsets without modifying calibration."""
+    def _zero_all_channels(self):
+        """Tare force and torque together without modifying calibration."""
         try:
             if self.motor_running and self.motor_controller is not None:
                 self.stop_motor()
             required = max(1, int(self.zero_duration_s * self.sampling_rate))
-            if zero_force and self.recent_force_voltage.size < required:
+            if self.recent_force_voltage.size < required:
                 raise RuntimeError(
                     f"Read data for at least {self.zero_duration_s:.1f} s "
-                    "before Zero force."
+                    "before Zero all."
                 )
-            if zero_torque and self.recent_torque_voltage.size < required:
+            if self.recent_torque_voltage.size < required:
                 raise RuntimeError(
                     f"Read data for at least {self.zero_duration_s:.1f} s "
-                    "before Zero torque."
+                    "before Zero all."
                 )
-            messages = []
-            if zero_force:
-                force_zero_v = float(
-                    np.mean(self.recent_force_voltage[-required:])
-                )
-                self.force_calibration = self.force_calibration.with_zero(
-                    force_zero_v
-                )
-                messages.append(f"Force zero: {force_zero_v:.6f} V")
-            if zero_torque:
-                torque_zero_v = float(
-                    np.mean(self.recent_torque_voltage[-required:])
-                )
-                self.torque_calibration = self.torque_calibration.with_zero(
-                    torque_zero_v
-                )
-                messages.append(f"Torque zero: {torque_zero_v:.6f} V")
+            force_zero_v = float(
+                np.mean(self.recent_force_voltage[-required:])
+            )
+            torque_zero_v = float(
+                np.mean(self.recent_torque_voltage[-required:])
+            )
+            self.force_calibration = self.force_calibration.with_zero(
+                force_zero_v
+            )
+            self.torque_calibration = self.torque_calibration.with_zero(
+                torque_zero_v
+            )
             self.force_filter.reset()
             self.torque_filter.reset()
             self._save_calibration()
             QMessageBox.information(
                 self,
                 "Zero complete",
-                "\n".join(messages)
+                f"Force zero: {force_zero_v:.6f} V\n"
+                f"Torque zero: {torque_zero_v:.6f} V"
                 + "\nCalibration slope/intercept were not changed.",
             )
         except Exception as e:
@@ -1947,6 +2158,8 @@ class MainWindow(QMainWindow):
                     LOGGER.exception("Failed to send safe motor stop")
             if self.read_sensor_running or self.acquisition_thread is not None:
                 self.stop_reading()
+            if self.calibration_thread is not None:
+                self.stop_calibration_capture()
             if self.camera is not None:
                 self.stop_camera()
             if self.motor_controller is not None:
