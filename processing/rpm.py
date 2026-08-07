@@ -6,6 +6,28 @@ from dataclasses import dataclass
 import time
 
 
+DEFAULT_PULSES_PER_REVOLUTION = 2
+
+
+def align_rpm_elapsed_time(
+    analog_elapsed_s: float,
+    rpm_elapsed_s: float | None,
+    rpm_time_offset_s: float | None,
+) -> tuple[float, float | None]:
+    """Keep live RPM on its own clock while sharing the analog time origin."""
+    analog_elapsed_s = max(0.0, float(analog_elapsed_s))
+    if rpm_elapsed_s is None:
+        return analog_elapsed_s, rpm_time_offset_s
+
+    rpm_elapsed_s = max(0.0, float(rpm_elapsed_s))
+    if rpm_time_offset_s is None:
+        rpm_time_offset_s = max(0.0, rpm_elapsed_s - analog_elapsed_s)
+    return (
+        max(0.0, rpm_elapsed_s - rpm_time_offset_s),
+        rpm_time_offset_s,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RpmReading:
     """One RPM result derived from the cumulative NI counter value."""
@@ -14,6 +36,7 @@ class RpmReading:
     frequency_hz: float
     rpm: float
     status: str = "OK"
+    elapsed_time_s: float | None = None
 
 
 class CounterRpmTracker:
@@ -21,7 +44,7 @@ class CounterRpmTracker:
 
     def __init__(
         self,
-        pulses_per_revolution: int = 1,
+        pulses_per_revolution: int = DEFAULT_PULSES_PER_REVOLUTION,
         calculation_window_s: float = 0.1,
         timeout_s: float = 1.5,
         counter_bits: int = 32,
@@ -39,6 +62,7 @@ class CounterRpmTracker:
         self.calculation_window_s = float(calculation_window_s)
         self.timeout_s = float(timeout_s)
         self._counter_modulus = 1 << int(counter_bits)
+        self._measurement_start_time = 0.0
         self._last_counter = 0
         self._window_start_time = 0.0
         self._window_pulses = 0
@@ -54,6 +78,7 @@ class CounterRpmTracker:
     ) -> None:
         """Reset calculation state using the counter's current value."""
         current_time = time.monotonic() if now is None else float(now)
+        self._measurement_start_time = current_time
         self._last_counter = int(initial_count) % self._counter_modulus
         self._window_start_time = current_time
         self._window_pulses = 0
@@ -72,7 +97,13 @@ class CounterRpmTracker:
         current_count = int(counter_value) % self._counter_modulus
         if not self._initialized:
             self.reset(current_count, current_time)
-            return RpmReading(current_count, 0.0, 0.0, "WAITING_FOR_PULSE")
+            return RpmReading(
+                current_count,
+                0.0,
+                0.0,
+                "WAITING_FOR_PULSE",
+                0.0,
+            )
 
         pulse_delta = (
             current_count - self._last_counter
@@ -82,8 +113,16 @@ class CounterRpmTracker:
         # A real USB-6001 counter cannot advance by half its 32-bit range in one
         # GUI block. Treat such a jump as a device/task reset instead of a burst.
         if pulse_delta > self._counter_modulus // 2:
+            measurement_start_time = self._measurement_start_time
             self.reset(current_count, current_time)
-            return RpmReading(current_count, 0.0, 0.0, "COUNTER_RESET")
+            self._measurement_start_time = measurement_start_time
+            return RpmReading(
+                current_count,
+                0.0,
+                0.0,
+                "COUNTER_RESET",
+                max(0.0, current_time - self._measurement_start_time),
+            )
 
         if pulse_delta:
             self._window_pulses += pulse_delta
@@ -121,4 +160,8 @@ class CounterRpmTracker:
             frequency_hz=self._frequency_hz,
             rpm=self._rpm,
             status=status,
+            elapsed_time_s=max(
+                0.0,
+                current_time - self._measurement_start_time,
+            ),
         )

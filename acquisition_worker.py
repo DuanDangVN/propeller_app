@@ -36,6 +36,16 @@ class AcquisitionWorker(QObject):
         self._timer: QTimer | None = None
         self._stopping = False
 
+    @staticmethod
+    def _timer_interval_for_reader(
+        reader: Any,
+        configured_interval_ms: int,
+    ) -> int:
+        """Let blocking hardware reads pace themselves without timer gaps."""
+        if getattr(reader, "paces_reads", False):
+            return 0
+        return max(1, int(configured_interval_ms))
+
     @Slot()
     def start(self) -> None:
         """Create the NI task in this thread and start periodic block reads."""
@@ -48,7 +58,12 @@ class AcquisitionWorker(QObject):
             )
             self._timer = QTimer(self)
             self._timer.timeout.connect(self.read_once)
-            self._timer.start(self._update_interval_ms)
+            self._timer.start(
+                self._timer_interval_for_reader(
+                    self._reader,
+                    self._update_interval_ms,
+                )
+            )
             self.read_once()
         except Exception as exc:
             self.error.emit(str(exc))

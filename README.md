@@ -1,14 +1,13 @@
 # propeller_app
 
 Ứng dụng desktop đo lực, mô-men và RPM, đồng thời điều khiển ESC cho bệ thử
-cánh quạt. Bản đang phát triển nằm trên branch local
-`ni-rpm-counter-local` và không được push lên GitHub.
+cánh quạt. Bản đang phát triển nằm trên branch `NTA-ver`.
 
 ## Cấu hình phần cứng
 
-- Lực: NI USB-6001 AI2 (+) / AI6 (−), differential.
-- Mô-men: NI USB-6001 AI1 (+) / AI5 (−), differential.
-- RPM: cảm biến OUT vào NI P2.0/PFI0, bộ đếm `ctr0`.
+- Lực: tín hiệu JSY-S60 vào NI USB-6001 AI0, mass tín hiệu vào AI GND, RSE.
+- Mô-men: tín hiệu JSY-S60 vào NI USB-6001 AI1, mass tín hiệu vào AI GND, RSE.
+- RPM: cảm biến 2 xung/vòng, OUT vào NI P2.0/PFI0, bộ đếm `ctr0`.
 - Arduino: chỉ điều khiển ESC qua D11 và nhận lệnh qua USB serial.
 - Cảm biến RPM có thể dùng +5 V và D GND của NI nếu dòng tiêu thụ phù hợp.
 
@@ -30,14 +29,28 @@ arduino/propeller_controller/propeller_controller.ino
 - Bộ lọc analog: không lọc, moving average, median và Butterworth low-pass.
 - Có đường raw/filtered, Zero độc lập, thống kê và xuất CSV/Excel.
 
-Mỗi dòng xuất có:
+CSV và Excel chỉ xuất thời gian cùng ba đại lượng chính đã xử lý:
 
 ```text
-timestamp, elapsed_time_s,
-force_voltage_raw_v, torque_voltage_raw_v,
-force_raw_n, torque_raw_nm,
-force_filtered_n, torque_filtered_nm,
-pulse_count, frequency_hz, rpm, rpm_status, acquisition_status
+Time Data (s), Thrust (N), Torque (N.m), RPM
+```
+
+File Excel chỉ có một sheet `Measurements`; dữ liệu thô, cấu hình và thống kê
+vẫn được dùng trong ứng dụng nhưng không đưa vào file xuất.
+
+## Cấu trúc module
+
+```text
+main.py                       Điểm khởi động ứng dụng
+app_runtime.py                Đường dẫn, logging và cấu hình runtime
+ui/main_window.py             Giao diện và điều phối sự kiện
+ui/charts.py                  Cấu hình biểu đồ
+devices/ni_reader.py          Đọc NI USB-6001 và bộ đếm RPM
+devices/motor_controller.py   Điều khiển Arduino/ESC
+devices/simulation_reader.py  Nguồn dữ liệu mô phỏng
+acquisition_worker.py         Worker đọc dữ liệu nền
+processing/                   RPM, calibration, lọc và thống kê
+storage/exporters.py          Xuất CSV/Excel bốn cột chính
 ```
 
 ## Cài đặt
@@ -60,18 +73,40 @@ Máy chạy chế độ Hardware NI phải cài NI-DAQmx. Simulation không cầ
 2. Đấu cảm biến RPM vào NI +5 V, D GND và P2.0/PFI0.
 3. Mở ứng dụng, vào `Settings`.
 4. Chọn `Hardware NI`, thiết bị NI và cổng COM Arduino.
-5. Trong `NI RPM counter`, chọn `ctr0`, `PFI0` và nhập đúng số xung mỗi vòng.
+5. Trong `NI RPM counter`, chọn `ctr0`, `PFI0` và giữ `Pulses per revolution = 2`.
 6. Bấm `Apply acquisition settings`.
 7. Bấm `Connect Arduino` nếu cần điều khiển motor.
 8. Bấm `Read data` để đọc lực, mô-men và RPM từ NI.
 
 Không cần kết nối Arduino để đọc NI; chỉ cần Arduino khi điều khiển ESC.
 
+### Calibration
+
+1. Chọn `Thrust` hoặc `Torque` trong `Calibration Task`.
+2. Để cảm biến không tải, nhập `0` gram và bấm `Get Voltage`.
+3. Đặt tải chuẩn, ví dụ tải 2 kg thì nhập `2000` gram, chờ ổn định rồi bấm
+   `Get Voltage` lần nữa.
+4. Lặp lại với ít nhất một tải khác nếu có, sau đó bấm
+   `Linear approximate` và `Apply Calib Value`.
+5. Bỏ tải và thực hiện `Zero all` trước khi đo.
+
+`Get Voltage` tự chụp một cửa sổ analog hữu hạn khi `Read data` đang tắt. Nếu
+`Read data` đang chạy, nút này dùng 0,5 giây dữ liệu mới nhất. Nếu tải thay đổi
+nhưng điện áp gần như không đổi, điểm calibration sẽ không được lưu và ứng dụng
+sẽ yêu cầu kiểm tra kênh, dây JSY-S60 và cực AI+/AI−.
+
+Khi đổi từ calibration `Thrust` sang `Torque` (hoặc ngược lại), ứng dụng tự
+xóa các điểm đo và kết quả linear fit tạm thời để không trộn dữ liệu hai cảm
+biến. Hệ số calibration đã Apply vẫn được giữ nguyên.
+
+Nút `View applied calibration` hiển thị hệ số A/B, điện áp Zero và công thức
+Thrust/Torque mà ứng dụng đang thực sự sử dụng.
+
 ## Kiểm tra
 
 ```powershell
 python -m pytest -q tests
-python -m py_compile main.py acquisition_worker.py processing\rpm.py
+python -m compileall -q main.py app_runtime.py devices processing storage ui
 python main.py --smoke-test
 ```
 

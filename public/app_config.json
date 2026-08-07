@@ -4,10 +4,10 @@
     "sampling_rate_hz": 1000,
     "block_size": 100,
     "update_interval_ms": 100,
-    "force_channel": "ai2",
-    "force_negative_input": "ai6",
+    "force_channel": "ai0",
     "torque_channel": "ai1",
-    "torque_negative_input": "ai5",
+    "terminal_configuration": "RSE",
+    "analog_reference": "AI GND",
     "voltage_min_v": 0.0,
     "voltage_max_v": 10.0
   },
@@ -23,16 +23,14 @@
     "show_filtered": true,
     "max_plot_points": 1000
   },
-  "storage": {
-    "save_raw": true
-  },
   "zero": {
     "duration_s": 1.5
   },
   "rpm": {
     "counter": "ctr0",
     "terminal": "PFI0",
-    "pulses_per_revolution": 1,
+    "sensor_profile": "two-pulse-v1",
+    "pulses_per_revolution": 2,
     "calculation_window_s": 0.1,
     "timeout_s": 1.5
   }

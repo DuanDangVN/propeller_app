@@ -8,6 +8,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+.arduino-build/
 build/
 develop-eggs/
 dist/

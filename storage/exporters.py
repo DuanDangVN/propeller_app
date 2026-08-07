@@ -1,4 +1,4 @@
-"""CSV and multi-sheet Excel exporters."""
+"""Simple CSV and Excel exporters for time and primary measurements."""
 
 from __future__ import annotations
 
@@ -8,72 +8,45 @@ from typing import Any
 
 import pandas as pd
 
-RAW_COLUMNS = [
-    "force_voltage_raw_v",
-    "torque_voltage_raw_v",
-    "force_raw_n",
-    "torque_raw_nm",
-]
+EXPORT_COLUMNS = {
+    "elapsed_time_s": "Time Data (s)",
+    "force_filtered_n": "Thrust (N)",
+    "torque_filtered_nm": "Torque (N.m)",
+    "rpm": "RPM",
+}
 
 
 def _measurement_frame(
     rows: Sequence[Mapping[str, Any]],
-    save_raw: bool,
 ) -> pd.DataFrame:
     if not rows:
         raise ValueError("No measurement data is available to save.")
     frame = pd.DataFrame(rows)
-    if not save_raw:
-        frame = frame.drop(
-            columns=[column for column in RAW_COLUMNS if column in frame],
+    missing_columns = [
+        column for column in EXPORT_COLUMNS if column not in frame.columns
+    ]
+    if missing_columns:
+        raise ValueError(
+            "Measurement data is missing required columns: "
+            + ", ".join(missing_columns)
         )
-    return frame
+    return frame[list(EXPORT_COLUMNS)].rename(columns=EXPORT_COLUMNS)
 
 
 def save_measurements_csv(
     path: Path,
     rows: Sequence[Mapping[str, Any]],
-    save_raw: bool,
 ) -> None:
-    """Save sample rows to UTF-8 CSV."""
-    frame = _measurement_frame(rows, save_raw)
+    """Save time, Thrust, Torque and RPM rows to UTF-8 CSV."""
+    frame = _measurement_frame(rows)
     frame.to_csv(path, index=False, encoding="utf-8-sig")
 
 
 def save_measurements_excel(
     path: Path,
     rows: Sequence[Mapping[str, Any]],
-    save_raw: bool,
-    configuration: Mapping[str, Mapping[str, Any]],
-    calibration_rows: Sequence[Mapping[str, Any]],
-    statistics_rows: Sequence[Mapping[str, Any]],
 ) -> None:
-    """Save measurements and metadata to four Excel sheets."""
-    frame = _measurement_frame(rows, save_raw)
-    config_rows = []
-    for section, values in configuration.items():
-        for key, value in values.items():
-            config_rows.append(
-                {
-                    "section": section,
-                    "parameter": key,
-                    "value": value,
-                }
-            )
+    """Save time, Thrust, Torque and RPM to one Excel worksheet."""
+    frame = _measurement_frame(rows)
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         frame.to_excel(writer, sheet_name="Measurements", index=False)
-        pd.DataFrame(config_rows).to_excel(
-            writer,
-            sheet_name="Configuration",
-            index=False,
-        )
-        pd.DataFrame(calibration_rows).to_excel(
-            writer,
-            sheet_name="Calibration",
-            index=False,
-        )
-        pd.DataFrame(statistics_rows).to_excel(
-            writer,
-            sheet_name="Statistics",
-            index=False,
-        )

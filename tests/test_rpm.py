@@ -2,7 +2,24 @@
 
 import pytest
 
-from processing.rpm import CounterRpmTracker
+from processing.rpm import (
+    CounterRpmTracker,
+    DEFAULT_PULSES_PER_REVOLUTION,
+)
+
+
+def test_default_matches_two_pulse_sensor() -> None:
+    tracker = CounterRpmTracker(
+        calculation_window_s=0.1,
+        timeout_s=1.5,
+    )
+    tracker.reset(initial_count=0, now=10.0)
+
+    reading = tracker.update(counter_value=2, now=10.1)
+
+    assert DEFAULT_PULSES_PER_REVOLUTION == 2
+    assert tracker.pulses_per_revolution == 2
+    assert reading.rpm == pytest.approx(600.0)
 
 
 def test_counter_edges_are_converted_to_rpm() -> None:
@@ -19,6 +36,7 @@ def test_counter_edges_are_converted_to_rpm() -> None:
     assert reading.frequency_hz == pytest.approx(100.0)
     assert reading.rpm == pytest.approx(3000.0)
     assert reading.status == "OK"
+    assert reading.elapsed_time_s == pytest.approx(0.2)
 
 
 def test_rpm_holds_between_low_speed_pulses_then_times_out() -> None:

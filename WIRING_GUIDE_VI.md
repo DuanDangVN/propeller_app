@@ -4,13 +4,13 @@
 
 | Đại lượng | Đầu dương | Đầu âm | Chế độ |
 |---|---|---|---|
-| Lực | AI2 | AI6 | Differential |
-| Mô-men | AI1 | AI5 | Differential |
+| Lực | AI0 | AI GND | RSE |
+| Mô-men | AI1 | AI GND | RSE |
 | RPM | P2.0/PFI0 | D GND | Counter `ctr0`, cạnh lên |
 
-Với hai kênh analog, chương trình chỉ khai báo `ai2` và `ai1` với
-`TerminalConfiguration.DIFFERENTIAL`. NI tự sử dụng AI6 và AI5 làm đầu âm
-tương ứng.
+Với hai kênh analog, chương trình khai báo `ai0` và `ai1` với
+`TerminalConfiguration.RSE`. Mass tín hiệu analog của cả hai JSY-S60 phải nối
+về `AI GND` của NI USB-6001. Không dùng AI5/AI6 làm đầu âm trong cấu hình này.
 
 ### Dãy 16 lỗ digital
 
@@ -80,7 +80,7 @@ Trong trang `Settings`, nhóm `NI RPM counter`:
 ```text
 Counter: ctr0
 Pulse terminal: PFI0
-Pulses per revolution: số xung thực tế mỗi vòng
+Pulses per revolution: 2 (cảm biến thực tế phát 2 xung/vòng)
 Calculation window: 0.10 s
 No-pulse timeout: 1.50 s
 ```

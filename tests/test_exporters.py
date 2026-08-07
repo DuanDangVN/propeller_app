@@ -22,27 +22,27 @@ def _rows() -> list[dict[str, object]]:
     ]
 
 
-def test_csv_can_exclude_raw_columns(tmp_path) -> None:
+def test_csv_contains_time_and_primary_measurements(tmp_path) -> None:
     path = tmp_path / "measurements.csv"
-    save_measurements_csv(path, _rows(), save_raw=False)
+    save_measurements_csv(path, _rows())
     frame = pd.read_csv(path)
-    assert "force_filtered_n" in frame.columns
-    assert "force_voltage_raw_v" not in frame.columns
+    assert frame.columns.tolist() == [
+        "Time Data (s)",
+        "Thrust (N)",
+        "Torque (N.m)",
+        "RPM",
+    ]
+    assert frame.iloc[0].tolist() == [0.0, 3.1, 4.1, 1000.0]
 
 
-def test_excel_contains_required_sheets(tmp_path) -> None:
+def test_excel_contains_one_simple_measurement_sheet(tmp_path) -> None:
     path = tmp_path / "measurements.xlsx"
-    save_measurements_excel(
-        path,
-        _rows(),
-        save_raw=True,
-        configuration={"filter": {"mode": "moving_average"}},
-        calibration_rows=[{"channel": "Force", "slope": 1.0}],
-        statistics_rows=[{"channel": "Force", "mean": 3.1}],
-    )
-    assert pd.ExcelFile(path).sheet_names == [
-        "Measurements",
-        "Configuration",
-        "Calibration",
-        "Statistics",
+    save_measurements_excel(path, _rows())
+    assert pd.ExcelFile(path).sheet_names == ["Measurements"]
+    frame = pd.read_excel(path)
+    assert frame.columns.tolist() == [
+        "Time Data (s)",
+        "Thrust (N)",
+        "Torque (N.m)",
+        "RPM",
     ]
