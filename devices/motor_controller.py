@@ -6,10 +6,13 @@ import serial
 import serial.tools.list_ports
 
 
+DEFAULT_ARDUINO_PORT = "COM10"
+
+
 class MotorControl:
     """Send validated throttle commands to the Arduino controller."""
 
-    def __init__(self, serial_port="COM6", baud_rate=9600):
+    def __init__(self, serial_port=DEFAULT_ARDUINO_PORT, baud_rate=9600):
         self.arduino = serial.Serial(
             serial_port,
             baud_rate,
@@ -37,7 +40,7 @@ class MotorControl:
 def list_com():
     """Return serial port names, descriptions and the preferred port."""
     ports = serial.tools.list_ports.comports()
-    com_default = "COM6"
+    com_default = DEFAULT_ARDUINO_PORT
     description_default = f"Arduino Uno ({com_default})"
     port_name = []
     port_description = []

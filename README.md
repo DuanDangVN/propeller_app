@@ -8,7 +8,8 @@ cánh quạt. Bản đang phát triển nằm trên branch `NTA-ver`.
 - Lực: tín hiệu JSY-S60 vào NI USB-6001 AI0, mass tín hiệu vào AI GND, RSE.
 - Mô-men: tín hiệu JSY-S60 vào NI USB-6001 AI1, mass tín hiệu vào AI GND, RSE.
 - RPM: cảm biến 2 xung/vòng, OUT vào NI P2.0/PFI0, bộ đếm `ctr0`.
-- Arduino: chỉ điều khiển ESC qua D11 và nhận lệnh qua USB serial.
+- Arduino: chỉ điều khiển ESC qua D11 và nhận lệnh qua USB serial; cổng mặc
+  định là `COM10` nếu ứng dụng không tự nhận diện được Arduino Uno.
 - Cảm biến RPM có thể dùng +5 V và D GND của NI nếu dòng tiêu thụ phù hợp.
 
 Sơ đồ chi tiết: [WIRING_GUIDE_VI.md](WIRING_GUIDE_VI.md).
