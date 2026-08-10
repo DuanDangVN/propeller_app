@@ -1,9 +1,28 @@
 """Tests for the streaming signal filters."""
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from processing.filters import FilterSettings, SignalFilter, moving_average
+
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+
+
+def test_default_filter_is_butterworth_low_pass() -> None:
+    assert FilterSettings().mode == "butterworth"
+
+    config = json.loads(
+        (PROJECT_DIR / "public" / "app_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert config["filter"]["mode"] == "butterworth"
+    assert config["filter"]["lowpass_cutoff_hz"] == 10.0
+    assert config["filter"]["lowpass_order"] == 4
 
 
 def test_moving_average_uses_partial_initial_windows() -> None:

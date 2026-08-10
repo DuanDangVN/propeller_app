@@ -1,6 +1,8 @@
 {
-  "thrust_slope": 32.6997656179737,
-  "thrust_intercept": -25.99357337891237,
-  "torque_slope": 1,
-  "torque_intercept": -1.4894110885972622
+  "thrust_slope": 61.9097335779648,
+  "thrust_intercept": -19.3004887439589,
+  "thrust_zero_offset_v": 0.3119909100402147,
+  "torque_slope": 0.7621357785117475,
+  "torque_intercept": -0.435808379472578,
+  "torque_zero_offset_v": 0.5883615249954164
 }

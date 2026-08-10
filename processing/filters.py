@@ -16,7 +16,7 @@ FloatArray = NDArray[np.float64]
 class FilterSettings:
     """User-configurable filter settings."""
 
-    mode: str = "moving_average"
+    mode: str = "butterworth"
     moving_average_window: int = 9
     median_window: int = 5
     lowpass_cutoff_hz: float = 10.0

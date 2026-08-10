@@ -1,5 +1,8 @@
 """Tests for linear calibration and independent tare behavior."""
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -54,3 +57,34 @@ def test_old_calibration_gram_input_converts_to_engineering_units() -> None:
     assert calibration_value_from_mass(2000, "Torque") == pytest.approx(
         0.784532
     )
+
+
+def test_bundled_default_uses_nta_rig_calibration() -> None:
+    calibration_path = (
+        Path(__file__).resolve().parents[1] / "public" / "storeage_calib.json"
+    )
+    data = json.loads(calibration_path.read_text(encoding="utf-8"))
+
+    assert data == pytest.approx(
+        {
+            "thrust_slope": 61.9097335779648,
+            "thrust_intercept": -19.3004887439589,
+            "thrust_zero_offset_v": 0.3119909100402147,
+            "torque_slope": 0.7621357785117475,
+            "torque_intercept": -0.435808379472578,
+            "torque_zero_offset_v": 0.5883615249954164,
+        }
+    )
+
+    thrust = CalibrationCoefficients(
+        data["thrust_slope"],
+        data["thrust_intercept"],
+        data["thrust_zero_offset_v"],
+    )
+    torque = CalibrationCoefficients(
+        data["torque_slope"],
+        data["torque_intercept"],
+        data["torque_zero_offset_v"],
+    )
+    assert thrust.convert(data["thrust_zero_offset_v"]) == pytest.approx(0.0)
+    assert torque.convert(data["torque_zero_offset_v"]) == pytest.approx(0.0)

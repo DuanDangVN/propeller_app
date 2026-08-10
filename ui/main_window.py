@@ -70,6 +70,7 @@ from processing.rpm import (
 from processing.statistics import RunningStatistics
 from storage.exporters import save_measurements_csv, save_measurements_excel
 from ui.charts import configure_chart
+from ui.documents import EmbeddedWebPanel, load_document_urls
 
 
 LOGGER = logging.getLogger(__name__)
@@ -89,6 +90,9 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(str(PUBLIC_DIR / "icon.ico")))
         self.setIconSize(QSize(100, 100))
         self.setGeometry(100, 100, 1080, 800)
+        self.document_urls = load_document_urls(
+            PUBLIC_DIR / "documents_url.json"
+        )
         self.setStyleSheet("""
             /* Main Window */
             QWidget {
@@ -1110,39 +1114,30 @@ class MainWindow(QMainWindow):
         layout.addWidget(panel)
 
     def _setup_tab2(self, layout):
-        guide_path = PUBLIC_DIR / "propeller_guided.pdf"
-        self._add_external_link_tab(
-            layout,
-            "Propeller guide",
-            "Open the bundled guide with the default PDF reader.",
-            QUrl.fromLocalFile(str(guide_path)),
+        layout.addWidget(
+            EmbeddedWebPanel(
+                "Propeller guide",
+                self.document_urls["propeller_guided"],
+                self,
+            )
         )
 
     def _setup_tab3(self, layout):
-        with (PUBLIC_DIR / "documents_url.json").open(
-            "r",
-            encoding="utf-8",
-        ) as file:
-            urls = json.load(file)
-        email = urls["email"]
         self._add_external_link_tab(
             layout,
             "Email",
-            "Open Gmail in the default web browser.",
-            QUrl(email),
+            "Google account sign-in is not supported securely inside an "
+            "embedded WebView. Open Gmail in the default browser.",
+            QUrl(self.document_urls["email"]),
         )
 
     def _setup_tab4(self, layout):
-        with (PUBLIC_DIR / "documents_url.json").open(
-            "r",
-            encoding="utf-8",
-        ) as file:
-            urls = json.load(file)
-        self._add_external_link_tab(
-            layout,
-            "Information",
-            "Open the information page in the default web browser.",
-            QUrl(urls["dhutech"]),
+        layout.addWidget(
+            EmbeddedWebPanel(
+                "Information",
+                self.document_urls["dhutech"],
+                self,
+            )
         )
     def set_calib_slope_value(self):
         try:

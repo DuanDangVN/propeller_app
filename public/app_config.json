@@ -12,7 +12,7 @@
     "voltage_max_v": 10.0
   },
   "filter": {
-    "mode": "moving_average",
+    "mode": "butterworth",
     "moving_average_window": 9,
     "median_window": 5,
     "lowpass_cutoff_hz": 10.0,

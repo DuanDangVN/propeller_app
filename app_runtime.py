@@ -52,10 +52,12 @@ if IS_FROZEN:
     USER_DATA_DIR = (
         Path(os.environ.get("LOCALAPPDATA", Path.home())) / "PropellerApp"
     )
-    EXPORT_DIR = Path.home() / "Documents" / "PropellerApp" / "Exported_data"
 else:
     USER_DATA_DIR = PUBLIC_DIR
-    EXPORT_DIR = APP_DIR / "Exported_data"
+
+# Keep exported measurements beside the executable so a portable copy of the
+# application also keeps its CSV and Excel files in the same parent folder.
+EXPORT_DIR = APP_DIR / "Export data"
 
 USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)

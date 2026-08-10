@@ -38,6 +38,17 @@ Time Data (s), Thrust (N), Torque (N.m), RPM
 File Excel chỉ có một sheet `Measurements`; dữ liệu thô, cấu hình và thống kê
 vẫn được dùng trong ứng dụng nhưng không đưa vào file xuất.
 
+Khi chạy bản EXE, cả CSV và Excel được lưu trong thư mục `Export data` nằm ngay
+cạnh file EXE. Ứng dụng tự tạo thư mục này nếu chưa có. Ví dụ:
+
+```text
+NTA Propeller/
+├── PropellerApp.exe
+└── Export data/
+    ├── test.csv
+    └── test.xlsx
+```
+
 ## Cấu trúc module
 
 ```text
